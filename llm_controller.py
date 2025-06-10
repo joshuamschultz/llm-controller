@@ -1,33 +1,30 @@
 import os
 from typing import Dict, Any, Optional, Union, List
-from langchain.llms import OpenAI, Ollama
-from langchain.chat_models import ChatOpenAI, ChatAnthropic
-from langchain.schema import BaseLanguageModel, BaseMessage, AIMessage, HumanMessage
-from langchain.callbacks.manager import CallbackManagerForLLMRun
-from langchain.llms.base import LLM
-from langchain.chat_models.base import BaseChatModel
+from langchain_community.llms import Ollama
+from langchain_openai import ChatOpenAI
+from langchain_anthropic import ChatAnthropic
+from langchain_core.language_models.base import BaseLanguageModel
+from langchain_core.messages import BaseMessage, AIMessage, HumanMessage
+from langchain_core.callbacks.manager import CallbackManagerForLLMRun
+from langchain_core.language_models.llms import LLM
+from langchain_core.language_models.chat_models import BaseChatModel
 import requests
 import json
 
-class LLMController(BaseChatModel):
+class LLMController:
     """
     A unified LLM controller that provides seamless switching between providers
     while maintaining full LangChain compatibility for invoke(), LangGraph, etc.
     """
     
     def __init__(self, llm: str = "gpt-3.5-turbo", provider: str = "openai", **kwargs):
-        super().__init__(**kwargs)
         self.llm_name = llm
         self.provider = provider
         self.model_configs = {
             "openai": self._create_openai_model,
             "claude": self._create_claude_model,
             "anthropic": self._create_claude_model,  # alias
-            "grok": self._create_grok_model,
-            "xai": self._create_grok_model,  # alias
             "ollama": self._create_ollama_model,
-            "huggingface": self._create_huggingface_model,
-            "hf": self._create_huggingface_model,  # alias
         }
         self._current_model = None
         self._initialize_model()
@@ -43,8 +40,8 @@ class LLMController(BaseChatModel):
     def _create_openai_model(self, model_name: str) -> BaseLanguageModel:
         """Create OpenAI model"""
         return ChatOpenAI(
-            model_name=model_name,
-            openai_api_key=os.getenv("OPENAI_API_KEY"),
+            model=model_name,  # Updated parameter name
+            api_key=os.getenv("OPENAI_API_KEY"),
             temperature=0.7
         )
     
@@ -52,7 +49,7 @@ class LLMController(BaseChatModel):
         """Create Anthropic Claude model"""
         return ChatAnthropic(
             model=model_name,
-            anthropic_api_key=os.getenv("ANTHROPIC_API_KEY"),
+            api_key=os.getenv("ANTHROPIC_API_KEY"),
             temperature=0.7
         )
     
@@ -63,20 +60,6 @@ class LLMController(BaseChatModel):
             base_url=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
         )
     
-    def _create_grok_model(self, model_name: str) -> BaseLanguageModel:
-        """Create Grok model"""
-        return GrokChatModel(
-            model_name=model_name,
-            api_key=os.getenv("XAI_API_KEY")
-        )
-    
-    def _create_huggingface_model(self, model_name: str) -> BaseLanguageModel:
-        """Create Hugging Face model"""
-        return HuggingFaceChatModel(
-            model_name=model_name,
-            api_key=os.getenv("HUGGINGFACE_API_KEY")
-        )
-    
     def switch_model(self, llm: str, provider: str = None):
         """Switch to a different model/provider"""
         if provider:
@@ -84,30 +67,19 @@ class LLMController(BaseChatModel):
         self.llm_name = llm
         self._initialize_model()
     
-    # LangChain BaseChatModel interface methods
-    def _generate(self, messages: List[BaseMessage], stop: Optional[List[str]] = None, 
-                  run_manager: Optional[CallbackManagerForLLMRun] = None, **kwargs) -> Any:
-        """Generate method required by BaseChatModel"""
-        return self._current_model._generate(messages, stop, run_manager, **kwargs)
-    
-    def _llm_type(self) -> str:
-        """Return the type of LLM"""
-        return f"llm_controller_{self.provider}"
-    
-    # Delegate all other methods to the current model
-    def __getattr__(self, name):
-        """Delegate any missing methods to the current model"""
-        if self._current_model and hasattr(self._current_model, name):
-            return getattr(self._current_model, name)
-        raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
-    
+    # LangChain compatibility methods - delegate everything to the current model
     def invoke(self, input, config=None, **kwargs):
         """Invoke method for LangChain compatibility"""
         return self._current_model.invoke(input, config, **kwargs)
     
     def ainvoke(self, input, config=None, **kwargs):
         """Async invoke method"""
-        return self._current_model.ainvoke(input, config, **kwargs)
+        if hasattr(self._current_model, 'ainvoke'):
+            return self._current_model.ainvoke(input, config, **kwargs)
+        else:
+            # Fallback for models that don't support async
+            import asyncio
+            return asyncio.create_task(self.invoke(input, config, **kwargs))
     
     def stream(self, input, config=None, **kwargs):
         """Stream method for streaming responses"""
@@ -115,15 +87,39 @@ class LLMController(BaseChatModel):
     
     def astream(self, input, config=None, **kwargs):
         """Async stream method"""
-        return self._current_model.astream(input, config, **kwargs)
+        if hasattr(self._current_model, 'astream'):
+            return self._current_model.astream(input, config, **kwargs)
+        else:
+            # Fallback for models that don't support async streaming
+            import asyncio
+            async def async_stream():
+                for chunk in self.stream(input, config, **kwargs):
+                    yield chunk
+            return async_stream()
     
     def batch(self, inputs, config=None, **kwargs):
         """Batch method for processing multiple inputs"""
-        return self._current_model.batch(inputs, config, **kwargs)
+        if hasattr(self._current_model, 'batch'):
+            return self._current_model.batch(inputs, config, **kwargs)
+        else:
+            # Fallback: process one by one
+            return [self.invoke(input, config, **kwargs) for input in inputs]
     
     def abatch(self, inputs, config=None, **kwargs):
         """Async batch method"""
-        return self._current_model.abatch(inputs, config, **kwargs)
+        if hasattr(self._current_model, 'abatch'):
+            return self._current_model.abatch(inputs, config, **kwargs)
+        else:
+            # Fallback
+            import asyncio
+            return asyncio.gather(*[self.ainvoke(input, config, **kwargs) for input in inputs])
+    
+    # Delegate any other methods to the current model
+    def __getattr__(self, name):
+        """Delegate any missing methods to the current model"""
+        if self._current_model and hasattr(self._current_model, name):
+            return getattr(self._current_model, name)
+        raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
     
     @property
     def current_model_info(self) -> Dict[str, str]:
@@ -133,6 +129,12 @@ class LLMController(BaseChatModel):
             "model": self.llm_name,
             "type": type(self._current_model).__name__
         }
+    
+    # Properties to make it compatible with LangChain interfaces
+    @property
+    def _llm_type(self) -> str:
+        """Return the type of LLM"""
+        return f"llm_controller_{self.provider}"
 
 
 class GrokChatModel(BaseChatModel):
