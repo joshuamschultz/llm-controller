@@ -1,0 +1,115 @@
+# All supported providers and optional dependencies
+
+# Include base requirements
+-r requirements.txt
+
+# ============================================================================
+# All LLM Providers
+# ============================================================================
+
+# Hugging Face models
+transformers>=4.30.0
+torch>=2.0.0
+huggingface-hub>=0.16.0
+tokenizers>=0.13.0
+
+# Google AI (Gemini)
+google-generativeai>=0.3.0
+langchain-google-genai>=0.0.1
+
+# Cohere
+cohere>=4.0.0
+langchain-cohere>=0.0.1
+
+# AWS Bedrock
+boto3>=1.26.0
+langchain-aws>=0.0.1
+
+# Azure OpenAI
+azure-openai>=1.0.0
+azure-identity>=1.13.0
+
+# Replicate
+replicate>=0.15.0
+
+# Mistral AI
+mistralai>=0.0.7
+
+# Together AI
+together>=0.2.0
+
+# Fireworks AI
+fireworks-ai>=0.1.0
+
+# ============================================================================
+# Vector Stores and Embeddings (Optional)
+# ============================================================================
+# For RAG and document processing
+chromadb>=0.4.0
+faiss-cpu>=1.7.4
+pinecone-client>=2.2.0
+weaviate-client>=3.21.0
+
+# Embeddings
+sentence-transformers>=2.2.0
+
+# ============================================================================
+# Document Processing (Optional)
+# ============================================================================
+# PDF processing
+pypdf>=3.12.0
+pymupdf>=1.23.0
+
+# Office documents
+python-docx>=0.8.11
+openpyxl>=3.1.0
+
+# Web scraping
+beautifulsoup4>=4.12.0
+selenium>=4.11.0
+
+# ============================================================================
+# Advanced Features (Optional)
+# ============================================================================
+# Async support
+aiohttp>=3.8.0
+aiofiles>=23.1.0
+
+# Caching
+redis>=4.6.0
+diskcache>=5.6.0
+
+# Monitoring
+structlog>=23.0.0
+prometheus-client>=0.17.0
+
+# Configuration
+pydantic-settings>=2.0.0
+click>=8.1.0
+
+# Performance
+uvloop>=0.17.0  # Unix only
+orjson>=3.9.0
+
+# ============================================================================
+# Audio/Video Processing (Optional)
+# ============================================================================
+# For multimodal applications
+# whisper>=1.1.0  # OpenAI Whisper for speech
+# pillow>=10.0.0  # Image processing
+# opencv-python>=4.8.0  # Computer vision
+
+# ============================================================================
+# Machine Learning Tools (Optional)
+# ============================================================================
+# For custom model training/fine-tuning
+# numpy>=1.24.0
+# pandas>=2.0.0
+# scikit-learn>=1.3.0
+# datasets>=2.14.0
+
+# ============================================================================
+# Note: This is a comprehensive list
+# Install only what you need to avoid dependency conflicts
+# Use pip install -r requirements-minimal.txt for basic functionality
+# ============================================================================
