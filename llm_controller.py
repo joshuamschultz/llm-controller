@@ -1,23 +1,67 @@
 import os
 from typing import Dict, Any, Optional, Union, List
-from langchain_community.llms import Ollama
-from langchain_openai import ChatOpenAI
-from langchain_anthropic import ChatAnthropic
-from langchain_core.language_models.base import BaseLanguageModel
-from langchain_core.messages import BaseMessage, AIMessage, HumanMessage
-from langchain_core.callbacks.manager import CallbackManagerForLLMRun
-from langchain_core.language_models.llms import LLM
-from langchain_core.language_models.chat_models import BaseChatModel
+# Core LangChain imports
+try:
+    # Try new import structure first (LangChain 0.1+)
+    from langchain_community.llms import Ollama
+    from langchain_openai import ChatOpenAI
+    from langchain_anthropic import ChatAnthropic
+    from langchain_core.language_models.base import BaseLanguageModel
+    from langchain_core.messages import BaseMessage, AIMessage, HumanMessage
+    from langchain_core.callbacks.manager import CallbackManagerForLLMRun
+    from langchain_core.language_models.llms import LLM
+    from langchain_core.language_models.chat_models import BaseChatModel
+    from langchain_core.prompts import ChatPromptTemplate
+    from langchain_core.output_parsers import StrOutputParser
+    print("✓ Using new LangChain import structure")
+    NEW_IMPORTS = True
+except ImportError:
+    # Fallback to old import structure
+    try:
+        from langchain.llms import Ollama
+        from langchain.chat_models import ChatOpenAI, ChatAnthropic
+        from langchain.schema import BaseMessage, AIMessage, HumanMessage, StrOutputParser
+        from langchain.callbacks.manager import CallbackManagerForLLMRun
+        from langchain.llms.base import LLM
+        from langchain.chat_models.base import BaseChatModel
+        from langchain.prompts import ChatPromptTemplate
+        # BaseLanguageModel might not be available in older versions
+        BaseLanguageModel = BaseChatModel  # Use BaseChatModel as fallback
+        print("✓ Using legacy LangChain import structure")
+        NEW_IMPORTS = False
+    except ImportError as e:
+        print(f"❌ Import error: {e}")
+        print("Please install the required packages:")
+        print("pip install langchain-community langchain-openai langchain-anthropic langchain-core")
+        raise
+
+# Additional imports
+# Additional imports for Runnable compatibility
+try:
+    from langchain_core.runnables import Runnable
+    from langchain_core.runnables.utils import Input, Output
+    RUNNABLE_AVAILABLE = True
+    print("✓ Runnable interface available")
+except ImportError:
+    # For older versions, create a dummy base class
+    class Runnable:
+        pass
+    RUNNABLE_AVAILABLE = False
+    print("⚠️ Runnable interface not available - using compatibility mode")
 import requests
 import json
+import time
 
-class LLMController:
+class LLMController(Runnable):
     """
     A unified LLM controller that provides seamless switching between providers
     while maintaining full LangChain compatibility for invoke(), LangGraph, etc.
     """
     
     def __init__(self, llm: str = "gpt-3.5-turbo", provider: str = "openai", **kwargs):
+        if RUNNABLE_AVAILABLE:
+            super().__init__(**kwargs)
+        
         self.llm_name = llm
         self.provider = provider
         self.model_configs = {
@@ -67,7 +111,7 @@ class LLMController:
         self.llm_name = llm
         self._initialize_model()
     
-    # LangChain compatibility methods - delegate everything to the current model
+    # Core Runnable interface methods
     def invoke(self, input, config=None, **kwargs):
         """Invoke method for LangChain compatibility"""
         return self._current_model.invoke(input, config, **kwargs)
@@ -79,7 +123,8 @@ class LLMController:
         else:
             # Fallback for models that don't support async
             import asyncio
-            return asyncio.create_task(self.invoke(input, config, **kwargs))
+            loop = asyncio.get_event_loop()
+            return loop.run_in_executor(None, lambda: self.invoke(input, config, **kwargs))
     
     def stream(self, input, config=None, **kwargs):
         """Stream method for streaming responses"""
@@ -114,11 +159,35 @@ class LLMController:
             import asyncio
             return asyncio.gather(*[self.ainvoke(input, config, **kwargs) for input in inputs])
     
-    # Delegate any other methods to the current model
+    # Additional Runnable methods for pipeline compatibility
+    def __or__(self, other):
+        """Support for | operator in chains"""
+        if RUNNABLE_AVAILABLE:
+            from langchain_core.runnables import RunnableSequence
+            return RunnableSequence(first=self, last=other)
+        else:
+            # Fallback: create a simple chain wrapper
+            return SimpleChain(self, other)
+    
+    def __ror__(self, other):
+        """Support for | operator when LLMController is on the right"""
+        if RUNNABLE_AVAILABLE:
+            from langchain_core.runnables import RunnableSequence
+            return RunnableSequence(first=other, last=self)
+        else:
+            return SimpleChain(other, self)
+    
+    # Legacy method delegation for backwards compatibility
     def __getattr__(self, name):
         """Delegate any missing methods to the current model"""
         if self._current_model and hasattr(self._current_model, name):
-            return getattr(self._current_model, name)
+            attr = getattr(self._current_model, name)
+            # If it's a method, wrap it to maintain the controller context
+            if callable(attr):
+                def wrapper(*args, **kwargs):
+                    return attr(*args, **kwargs)
+                return wrapper
+            return attr
         raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
     
     @property
@@ -135,6 +204,33 @@ class LLMController:
     def _llm_type(self) -> str:
         """Return the type of LLM"""
         return f"llm_controller_{self.provider}"
+    
+    # String representation
+    def __repr__(self):
+        return f"LLMController(provider='{self.provider}', model='{self.llm_name}')"
+
+
+# Simple chain implementation for older LangChain versions
+class SimpleChain:
+    """Simple chain implementation for backwards compatibility"""
+    
+    def __init__(self, first, last):
+        self.first = first
+        self.last = last
+    
+    def invoke(self, input, config=None, **kwargs):
+        """Run the chain: first component then second component"""
+        intermediate = self.first.invoke(input, config, **kwargs)
+        return self.last.invoke(intermediate, config, **kwargs)
+    
+    def __or__(self, other):
+        """Support chaining multiple components"""
+        return SimpleChain(self, other)
+    
+    def __repr__(self):
+        return f"SimpleChain({self.first} | {self.last})"
+
+print("LLMController class loaded successfully!")
 
 
 class GrokChatModel(BaseChatModel):
